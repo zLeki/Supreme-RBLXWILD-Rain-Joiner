@@ -1,0 +1,10 @@
+{
+   "users" :[
+     {
+       "authorization": "66e7de52bbfafb934b1fb26e7b3c3e5d6a5fc4578112e1d08d3387ff4fda832b4d65404e7ab8b0c479c023d09c630b21fdf5c424c7a71b18a3ac1292a568d261",
+       "proxy_http": "45.140.13.119"
+     }
+  ],
+  "discord_webhook": "https://canary.discord.com/api/webhooks/866428328068382760/emJ3OtaPMqgzJqnAGNH6Rfhf3BUId9n1ynm23043LumI9oQKr2nsKPJga16g-yQUO_38",
+  "2captcha": "9a03021865b386cde2c796464541f676"
+}
