@@ -1,4 +1,5 @@
-use std::thread;
+use std::process::exit;
+use std::{io, thread};
 use rustc_serialize::json;
 use url::Url;
 use tungstenite::{connect, Message};
@@ -13,7 +14,9 @@ use reqwest::Client;
 use serde_json;
 use reqwest::header;
 use spinner::SpinnerBuilder;
+use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
 
+// TODO: Create rest api
 #[derive(RustcDecodable, RustcEncodable)]
 pub struct TestStruct  {
     captchaToken: String,
@@ -40,55 +43,94 @@ pub struct User {
 }
 
 
+
 #[tokio::main]
-async fn main(){
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let debug = true;
     let sp = SpinnerBuilder::new("Long Running operation, please wait...".into()).start();
     if !debug {
-        sp.message("[2.0.5] Long Running operation, please wait...".into());
+        sp.message("[2.1.1] Long Running operation, please wait...".into());
     }
     let mut bal = 0;
     let mut potid= 0;
+    let mut prize = 0;
 
     'outer: loop {
         if debug {
             println!("[{}] Entering debug mode", format!("WARNING").yellow().bold());
 
         }
-        let (mut socket, _) = connect(
-            Url::parse("wss://rblxwild.com/socket.io/?EIO=4&transport=websocket").unwrap()
-        ).expect("Can't connect");
+
+        let mut socketlist = vec![];
+
+
+        // if let Err(e) = socket.write_message(Message::Text("2::/test".into())) {
+        //     if debug {
+        //         println!("[{}] Error", format!("ERROR").red().bold());
+        //
+        //     }
+        //     continue 'outer;
+        // }
         let file = "./config/config.json";
         let config: Config = serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
         // get length of Users
+        for user in config.users.iter() {
 
-        let value = &("42[\"authentication\",{\"authToken\":\"".to_owned()+ &*config.users[0].authorization + &*"\",\"clientTime\":1651530049953}]".to_owned());
-        let auths = vec!["40", "42[\"chat:subscribe\",{\"channel\":\"EN\"}]", "42[\"cases:subscribe\"]", value];
-        for auth in auths {
-            socket.write_message(Message::Text(auth.to_string())).unwrap();
-            let msg = socket.read_message().unwrap();
-            let str_msg = msg.to_string();
-            if str_msg.contains("authentication") {
-                let balance_split = str_msg.split("\"id\":");
-                for i in balance_split {
-                    if i.contains("prize") {
-                        potid = i.split(",").collect::<Vec<&str>>()[0].parse::<i32>().unwrap();
-                    }
-
+            let (mut socket2, err) = connect(
+                Url::parse("wss://rblxwild.com/socket.io/?EIO=4&transport=websocket").unwrap()
+            ).unwrap();
+            if err.status() != 101 {
+                if debug {
+                    println!("[{}] Error", format!("ERROR").red().bold());
                 }
-                let balance_split = str_msg.split("\"balance\":");
-                for i in balance_split {
-                    if i.contains("role") {
-                        bal = i.split(",").collect::<Vec<&str>>()[0].parse::<i32>().unwrap();
-                    }
-                }
+                continue 'outer;
             }
-            if debug {println!("{}", str_msg);}
+            socketlist.push(socket2);
+        }
+
+
+//42["authenticationResponse",{"userData":{"id":6853,"urlId":"XVl6YMk3An","accountId":439403718,"displayName":"xLeki","balance":24,"role":"USER","roleLevel":0,"isBanned":0,"muteEndsAt":0,"hasTradeLock":0,"whitelistRequest":0,"isWhitelisted":0,"affiliateId":6,"exp":10453,"level":null,"settings":{"volume":100,"isAnon":0,"isPrivate":0},"isLoggedIn":true},"defs":{"LEVEL_SCALE":2.5},"misc":{"online":1697},"events":{"rain":{"defs":{"INTERVALS":{"STARTED":1680000,"ENDING":120000,"ENDED":0}},"pot":{"id":3405,"prize":64820,"state":"ENDING","createdAt":1655054896,"lastUpdateMs":1655056576600,"joinedPlayersCount":511},"meJoined":false}},"serverClientRequestDiffTime":152,"clientTime":1655056609175,"serverTime":1655056609328}]	1655056609.3139117
+        // let mut socket = connect(
+        let mut i = 0;
+        if debug{
+            for user in config.users.iter() {
+                println!("[{}] User: {}", format!("INFO").green().bold(), user.authorization);
+            }
+        }
+        //loop for socketmap
+        for socket in socketlist.iter_mut() {
+            let value = &("42[\"authentication\",{\"authToken\":\"".to_owned()+ &*config.users[i].authorization + &*"\",\"clientTime\":1651530049953}]".to_owned());
+            let auths = vec!["40", "42[\"chat:subscribe\",{\"channel\":\"EN\"}]", "42[\"cases:subscribe\"]", value];
+            for auth in &auths {
+
+                socket.write_message(Message::Text(auth.to_string())).unwrap();
+                let msg = socket.read_message().unwrap();
+                let str_msg = msg.to_string();
+                if str_msg.contains("authenticationResponse") {
+                    i+=1;
+
+                    let balance_split = str_msg.split(r#""pot":{"id":"#);
+                    for i in balance_split {
+                        if i.contains("prize") {
+                            if potid == 0 {
+                                potid = i.split(",").collect::<Vec<&str>>()[0].parse::<i32>().unwrap();
+                            } else {
+                                println!("Pot id pre-set to something other then 0 ignoring setup");
+                            }
+                        }
+                    }
+                }
+                if debug { println!("{}", str_msg); }
+            }
         }
 
         loop {
+            if debug {
+                println!("[{}] Balance: {}", format!("INFO").green().bold(), bal);
+                println!("[{}] Pot: {}", format!("INFO").green().bold(), potid);
+            }
             // check or
-            if check_if_its_7am()   {
+            if check_if_its_7am()  {
                 let string_json = "{\"content\":\"@everyone Daily recap ||https://rblxwild.com/?modal=trading-cashier&type=WITHDRAW||\",\"embeds\":[{\"title\":\"Todays Profits\",\"color\":5814783,\"fields\":[{\"name\":\"Account Balance\",\"value\":\"💸 ".to_owned()+ &*bal.to_string() + &*"\",\"inline\":true},{\"name\":\"USD Balance\",\"value\":\"💰 $".to_owned() +&*((bal/2)/100).to_string()+"\",\"inline\":true}],\"thumbnail\":{\"url\":\"https://i.imgur.com/BeGs0RY.png\"}}],\"avatar_url\": \"https://discohook.org/static/discord-avatar.png\",\"attachments\":[]}";
                 let client = Client::new();
                 client.post(&config.discord_webhook)
@@ -113,7 +155,7 @@ async fn main(){
                     headers.insert("Connection", "keep-alive".parse().unwrap());
                     headers.insert(header::COOKIE, "__mmapiwsid=e6754f24-f581-4b02-9295-dbf0f13ad717:a6586f216a80022e6cf74ada57130f99744db842; session=s%3A7M5xJJq41sM04a6HsrpKlAaCGYxOhNdF.zCzf%2FmqCvofCLX4YBmC7a5H25%2Fs8vPbpxn6B%2BahoXEM; _gcl_au=1.1.583011129.1654289048".parse().unwrap());
 
-                   Client::new()
+                    Client::new()
                         .post("https://rblxwild.com/api/trading/robux/request-exchange")
                         .headers(headers)
                         .body("{\"type\":\"DEPOSIT\",\"amount\":100,\"instant\":false,\"dummyAssetId\":0}")
@@ -127,19 +169,19 @@ async fn main(){
                         .headers(headers)
                         .body("{\"type\":\"WITHDRAW\",\"amount\":".to_owned() + &*bal.to_string() + ",\"instant\":false,\"dummyAssetId\":0}")
                         .send().await;
+
                     if response.is_ok() {
                         sp.update("Withdrawal Successful 📩".parse().unwrap());
-                        continue 'outer;
                     } else {
                         sp.update("Withdrawal Failed ❎ ".parse().unwrap());
-                        continue 'outer;
                     }
+
                 }
                 sleep(Duration::from_secs(60)).await;
 
             }
 
-            let msg = socket.read_message();
+            let msg = socketlist[0].read_message();
             // check if error happened
             if let Err(e) = msg {
                 if debug {
@@ -155,22 +197,55 @@ async fn main(){
                 println!("{:?}", msg);
             }
             if msg.to_string() == "2" {
-                socket.write_message(Message::Text("3".to_string())).unwrap();
-                if debug {
-                    println!("Sent 3");
+                for socket in socketlist.iter_mut() {
+                    if let Err(e) = socket.read_message() {
+                        if debug {
+                            println!("{:?}", e)
+                        }
+                        continue 'outer;
+                    }
+                    socket.write_message(Message::Text("3".to_string())).unwrap();
+
+                    if debug {
+                        println!("Sent 3");
+                    }
                 }
+
             }
             if msg.to_string().contains("updatePotVariables") {
-                let new_prize = msg.to_string();
-
+                let new_prize = msg.to_string().split("newPrize\":").collect::<Vec<&str>>()[1].to_string().split(",\"new").collect::<Vec<&str>>()[0].parse::<i32>().unwrap();
+                // if newprize lower then old prize then we have a new prize
+                if prize > new_prize {
+                    if debug {
+                        println!("New prize: {}", new_prize);
+                    }
+                    potid+=1;
+                }
+                if debug {
+                    println!("{} {} {}", prize, "->", new_prize);
+                }
+                prize = new_prize;
                 if !debug {
 
-                    sp.update("Pool Prize 💸 ".to_owned() + &new_prize.split("newPrize\":").collect::<Vec<&str>>()[1].to_string().split(",\"new").collect::<Vec<&str>>()[0] + &*" | Balance 💁 ".to_owned() + &*bal.to_string());
+                    sp.update("Pool Prize 💸 ".to_owned()+ &*prize.to_string() +" => "+ &new_prize.to_string() + &*" | Balance 💁 ".to_owned() + &*bal.to_string()+ &*" | 🆔 ".to_owned() + &*potid.to_string());
                 }
                 let rand_num = rand::thread_rng().gen_range(0..100);
-                
-                if rand_num <2  {
-                    socket.write_message(Message::Text("42[\"crash:bet\",{\"betAmount\":5,\"autoCashout\":1.01}]".to_string())).unwrap();
+
+                if rand_num < 2 {
+                    for socket in socketlist.iter_mut() {
+                        if let Err(e) = socket.read_message() {
+                            if debug {
+                                println!("{:?}", e)
+                            }
+                            continue 'outer;
+                        }
+                        socket.write_message(Message::Text("3".to_string())).unwrap();
+
+                        socket.write_message(Message::Text("42[\"crash:bet\",{\"betAmount\":5,\"autoCashout\":1.01}]".to_string())).unwrap();
+                        if debug {
+                            println!("Attempted to join crash");
+                        }
+                    }
 
                 }
             }
@@ -192,17 +267,16 @@ async fn main(){
                 if debug {
                     println!("Now that we finished joining, we will add one digit to pool id. Current pot id {} New pot id {}", potid, potid+1)
                 }
-                potid += 1;
-                if debug{
-                    println!("New pot id {}", potid)
-                }
+
+
             }
+
         }
     }
 }
 fn check_if_its_7am() -> bool {
     let now = Local::now();
-    if now.hour() == 21 && now.minute() == 0 {
+    if now.hour() == 21 && now.minute() == 5 {
         return true;
     }
     return false;
@@ -218,12 +292,15 @@ async fn join(potid: i32, authorization: String, captcha_token: String, debug: b
     let sw = SystemTime::now();
     loop {
         let url = format!("https://2captcha.com/res.php?key={}&action=get&id={}",captcha_token.clone(), id[2..id.len()].to_string());
+        if debug{
+            println!("{:?}", url);
+        }
         let result = client.get(&url)
             .send()
             .await.unwrap();
         let result: String = result.text().await.unwrap().split("|").collect();
         if debug {
-            println!("{}", result);
+            println!("{}", result);4
         }
         if result.contains("OK") {
             let client = Client::new();
@@ -244,7 +321,7 @@ async fn join(potid: i32, authorization: String, captcha_token: String, debug: b
                 .await.unwrap();
 
             if debug {
-                println!("{:?}", res);
+                println!("{:?}", res.text().await.unwrap());
             }
             return;
 
