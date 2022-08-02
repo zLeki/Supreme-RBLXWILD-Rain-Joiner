@@ -300,7 +300,7 @@ async fn join(potid: i32, authorization: String, captcha_token: String, debug: b
             .await.unwrap();
         let result: String = result.text().await.unwrap().split("|").collect();
         if debug {
-            println!("{}", result);4
+            println!("{}", result);
         }
         if result.contains("OK") {
             let client = Client::new();
